@@ -15,19 +15,21 @@ var credentials = new TwitterCredentials
     ConsumerSecret = configuration["API_KEY_SECRET"],
     AccessToken = configuration["ACCESS_TOKEN"],
     AccessTokenSecret = configuration["ACCESS_TOKEN_SECRET"],
+    BearerToken = configuration["BEARER_TOKEN"]
 };
 
-// get text and measure it for box.
-var twitterClient = new TwitterClient(credentials);
+var clients = new TwitterClients(
+    OAuth1: new TwitterClient(credentials),
+    OAuth2: new TwitterClient(new ConsumerOnlyCredentials(credentials))
+);
 
-await twitterClient.Auth.InitializeClientBearerTokenAsync();
-var user = await twitterClient.Users.GetAuthenticatedUserAsync();
+var user = await clients.OAuth1.Users.GetAuthenticatedUserAsync();
 
-builder.Services.AddSingleton(twitterClient);
+builder.Services.AddSingleton(clients);
 builder.Services.AddSingleton(new UserInfo(user.Id, user.ScreenName));
 builder.Services.AddSingleton<IProfanityFilter>(new global::ProfanityFilter.ProfanityFilter());
 
-//builder.Services.AddHostedService<DrManhattanResponder>();
+builder.Services.AddHostedService<DrManhattanResponder>();
 
 var app = builder.Build();
 
@@ -44,7 +46,7 @@ app.MapGet("/image", async (string? text) =>
 });
 
 app.MapPost("/tweet",
-    async (string text, IProfanityFilter profanityFilter, TwitterClient twitter, ILogger<Program> logger) =>
+    async (string text, IProfanityFilter profanityFilter, TwitterClients twitter, ILogger<Program> logger) =>
     {
         logger.LogInformation("{Text}", text);
 
@@ -59,14 +61,14 @@ app.MapPost("/tweet",
         {
             var content = TiredManhattanGenerator.Clean(text);
             var image = await TiredManhattanGenerator.GenerateBytes(content);
-            var upload = await twitter.Upload.UploadTweetImageAsync(image);
+            var upload = await twitter.OAuth1.Upload.UploadTweetImageAsync(image);
 
             var parameters = new PublishTweetParameters
             {
                 Medias = { upload }
             };
 
-            await twitter.Tweets.PublishTweetAsync(parameters);
+            await twitter.OAuth1.Tweets.PublishTweetAsync(parameters);
             logger.LogInformation("Sent to {Text}", text);
         }
         catch (Exception e)
@@ -75,6 +77,12 @@ app.MapPost("/tweet",
         }
     });
 
+app.MapGet("/profanity", (string text, IProfanityFilter filter) => new {
+    text,
+    hasProfanity = filter.DetectAllProfanities(text).Any()
+});
+
 await app.RunAsync();
 
 public record UserInfo(long UserId, string ScreenName);
+public record TwitterClients(ITwitterClient OAuth1, ITwitterClient OAuth2);

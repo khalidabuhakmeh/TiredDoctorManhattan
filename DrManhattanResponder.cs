@@ -1,25 +1,26 @@
 using ProfanityFilter.Interfaces;
-using Tweetinvi;
-using Tweetinvi.Core.Models;
+using Tweetinvi.Core.Parameters;
+using Tweetinvi.Events.V2;
 using Tweetinvi.Models;
 using Tweetinvi.Parameters;
+using Tweetinvi.Parameters.V2;
 
 namespace TiredDoctorManhattan;
 
 public class DrManhattanResponder : BackgroundService
 {
-    private readonly TwitterClient _twitterClient;
     private readonly IProfanityFilter _profanityFilter;
     private readonly UserInfo _user;
     private readonly ILogger<DrManhattanResponder> _logger;
+    private readonly TwitterClients _twitterClients;
 
     public DrManhattanResponder(
-        TwitterClient twitterClient,
+        TwitterClients twitterClients,
         IProfanityFilter profanityFilter,
         UserInfo user,
         ILogger<DrManhattanResponder> logger)
     {
-        _twitterClient = twitterClient;
+        _twitterClients = twitterClients;
         _profanityFilter = profanityFilter;
         _user = user;
         _logger = logger;
@@ -29,23 +30,33 @@ public class DrManhattanResponder : BackgroundService
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var stream = _twitterClient.Streams.CreateFilteredStream();
 
-            stream.AddLanguageFilter(LanguageFilter.English);
-            stream.AddTrack($"@{_user.ScreenName}", Received);
-            
-            stream.StreamStarted += (_, _) => _logger.LogInformation("Starting Filtered Streaming for @{ScreenName} ({UserId})...", _user.ScreenName, _user.UserId);
-            stream.StreamStopped += (_, _) => _logger.LogInformation("Stream Stopped");
+            var twitterClient = _twitterClients.OAuth2;
+            var stream = twitterClient.StreamsV2.CreateFilteredStream();
             
             try
             {
-                await stream.StartMatchingAnyConditionAsync().WaitAsync(stoppingToken);
+                var rules = await twitterClient.StreamsV2.GetRulesForFilteredStreamV2Async();
+
+                // add a rule to the filtered stream
+                if (!rules.Rules.Any()) {
+                    await twitterClient.StreamsV2.AddRulesToFilteredStreamAsync(
+                        new FilteredStreamRuleConfig($"@{_user.ScreenName}", "mention"));
+                }
+
+                stream.TweetReceived += (_, args) => Received(args);
+                
+                await stream.StartAsync(new StartFilteredStreamV2Parameters {
+                    TweetFields = new TweetFields().ALL,
+                    UserFields = new UserFields().ALL
+                });
             }
             catch (Exception e)
             {
                 try
                 {
-                    stream.Stop();
+                    stream.StopStream();
+                    
                 }
                 catch
                 {
@@ -57,16 +68,17 @@ public class DrManhattanResponder : BackgroundService
         }
     }
     
-    private async void Received(ITweet tweet)
+    private async void Received(TweetV2EventArgs args)
     {
-        _logger.LogInformation("{tweet}", tweet);
-        
-        // I'm not dealing with this s#@$!
-        if (_profanityFilter.IsProfanity(tweet.Text))
+        if (args.Tweet is null)
         {
-            _logger.LogInformation("Filtered out {Text} from {From}", tweet.Text, tweet.CreatedBy);
+            _logger.LogInformation("Not a tweet: {Information}", args.Json);
             return;
         }
+        
+        _logger.LogInformation("{@Tweet}", args);
+
+        var tweet = args.Tweet;
 
         if (!tweet.Text.StartsWith($"@{_user.ScreenName}"))
         {
@@ -74,28 +86,39 @@ public class DrManhattanResponder : BackgroundService
             return;
         }
         
+        var mentions = args.Includes
+            .Users
+            .Where(u => !u.Username.Equals(_user.ScreenName))
+            .Select(u =>$"@{u.Username}");
+        
+        var text = tweet.Text.Replace($"@{_user.ScreenName}", "").Trim();
+        // I'm not dealing with this s#@$!
+        if (_profanityFilter.DetectAllProfanities(text).Any())
+        {
+            _logger.LogInformation("Filtered out {Text} from {@From}", text, mentions);
+            return;
+        }
+        
         try
         {
-            var client = tweet.Client;
-
-            var text = tweet.Text.Replace($"@{_user.ScreenName}", "").Trim();
+            var twitterClient = _twitterClients.OAuth1;
             var content = TiredManhattanGenerator.Clean(text);
             
             var image = await TiredManhattanGenerator.GenerateBytes(content);
-            var upload = await _twitterClient.Upload.UploadTweetImageAsync(image);
-            
-            var parameters = new PublishTweetParameters($"@{tweet.CreatedBy}")
+            var upload = await twitterClient.Upload.UploadTweetImageAsync(image);
+
+            var parameters = new PublishTweetParameters(string.Join(" ", mentions))
             {
-                InReplyToTweet = tweet,
+                InReplyToTweet = new TweetIdentifier(Convert.ToInt64(tweet.Id)),
                 Medias = { upload }
             };
             
-            await client.Tweets.PublishTweetAsync(parameters);
-            _logger.LogInformation("Reply sent to {username}", tweet.CreatedBy);
+            await twitterClient.Tweets.PublishTweetAsync(parameters);
+            _logger.LogInformation("Reply sent to {Usernames}", mentions);
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Unable to reply to {tweet}", tweet);
+            _logger.LogError(e, "Unable to reply to {@Args}", args);
         }
     }
 }
