@@ -66,7 +66,7 @@ public class DrManhattanResponder : BackgroundService
                 _logger.LogError(e, "Stream stopped due to exception");
 
                 // too many requests
-                if (e.StatusCode == 429) 
+                if (e.StatusCode == 429 || e.Message.Contains("Rate limit exceeded")) 
                 {
                     // wait 15 minutes, cool down
                     await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);                    
