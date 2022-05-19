@@ -46,15 +46,18 @@ app.MapGet("/image", async (string? text) =>
 });
 
 app.MapPost("/tweet",
-    async (string text, IProfanityFilter profanityFilter, TwitterClients twitter, ILogger<Program> logger) =>
+    async (string text, string secret, IProfanityFilter profanityFilter, TwitterClients twitter, ILogger<Program> logger) =>
     {
         logger.LogInformation("{Text}", text);
 
+        if (configuration["SECRET_TOKEN"] != secret)
+            return Results.Forbid();
+
         // I'm not dealing with this s#@$!
-        if (profanityFilter.IsProfanity(text))
+        if (profanityFilter.ContainsProfanity(text))
         {
             logger.LogInformation("Filtered out {Text}", text);
-            return;
+            return Results.BadRequest();
         }
 
         try
@@ -75,11 +78,15 @@ app.MapPost("/tweet",
         {
             logger.LogError(e, "Unable to reply to {Text}", text);
         }
+        
+        
+
+        return Results.Ok("Tweeted Successfully");
     });
 
 app.MapGet("/profanity", (string text, IProfanityFilter filter) => new {
     text,
-    hasProfanity = filter.DetectAllProfanities(text).Any()
+    hasProfanity = filter.ContainsProfanity(text)
 });
 
 await app.RunAsync();

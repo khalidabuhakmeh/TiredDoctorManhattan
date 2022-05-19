@@ -93,7 +93,7 @@ public class DrManhattanResponder : BackgroundService
         
         var text = tweet.Text.Replace($"@{_user.ScreenName}", "").Trim();
         // I'm not dealing with this s#@$!
-        if (_profanityFilter.DetectAllProfanities(text).Any())
+        if (_profanityFilter.ContainsProfanity(text))
         {
             _logger.LogInformation("Filtered out {Text} from {@From}", text, mentions);
             return;
