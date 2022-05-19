@@ -1,6 +1,7 @@
 using ProfanityFilter.Interfaces;
 using Tweetinvi.Core.Parameters;
 using Tweetinvi.Events.V2;
+using Tweetinvi.Exceptions;
 using Tweetinvi.Models;
 using Tweetinvi.Parameters;
 using Tweetinvi.Parameters.V2;
@@ -28,9 +29,8 @@ public class DrManhattanResponder : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // while (!stoppingToken.IsCancellationRequested)
-        // {
-
+        while (!stoppingToken.IsCancellationRequested)
+        {
             var twitterClient = _twitterClients.OAuth2;
             var stream = twitterClient.StreamsV2.CreateFilteredStream();
             
@@ -51,7 +51,7 @@ public class DrManhattanResponder : BackgroundService
                     UserFields = new UserFields().ALL
                 });
             }
-            catch (Exception e)
+            catch (TwitterException e)
             {
                 try
                 {
@@ -64,8 +64,20 @@ public class DrManhattanResponder : BackgroundService
                 }
 
                 _logger.LogError(e, "Stream stopped due to exception");
+
+                // too many requests
+                if (e.StatusCode == 429) 
+                {
+                    // wait 15 minutes, cool down
+                    await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);                    
+                }
+                else
+                {
+                    // just chill for 10 seconds
+                    await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                }
             }
-        //}
+        }
     }
     
     private async void Received(TweetV2EventArgs args)
