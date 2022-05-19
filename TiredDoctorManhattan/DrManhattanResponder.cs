@@ -28,8 +28,8 @@ public class DrManhattanResponder : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested)
-        {
+        // while (!stoppingToken.IsCancellationRequested)
+        // {
 
             var twitterClient = _twitterClients.OAuth2;
             var stream = twitterClient.StreamsV2.CreateFilteredStream();
@@ -65,7 +65,7 @@ public class DrManhattanResponder : BackgroundService
 
                 _logger.LogError(e, "Stream stopped due to exception");
             }
-        }
+        //}
     }
     
     private async void Received(TweetV2EventArgs args)
