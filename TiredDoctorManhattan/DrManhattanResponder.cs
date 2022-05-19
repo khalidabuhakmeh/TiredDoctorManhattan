@@ -92,9 +92,11 @@ public class DrManhattanResponder : BackgroundService
 
         var tweet = args.Tweet;
 
-        if (!tweet.Text.StartsWith($"@{_user.ScreenName}"))
+        // conversation id and tweet id should be the same,
+        // if they are, then it's the first tweet to the bot 
+        if (!tweet.ConversationId.Equals(tweet.Id))
         {
-            _logger.LogInformation("Ignore mentions of the bot");
+            _logger.LogInformation("Ignore conversations, as they can get noisy");
             return;
         }
         
