@@ -40,7 +40,7 @@ public class DrManhattanResponder : BackgroundService
     {
         // wait for other instances to wind down
         // because Twitter has a connection limit
-        var coolDownMinutes = 0;
+        var coolDownMinutes = 1;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -63,12 +63,13 @@ public class DrManhattanResponder : BackgroundService
                 await _stream.StartAsync(new StartFilteredStreamV2Parameters
                 {
                     TweetFields = new TweetFields().ALL,
-                    UserFields = new UserFields().ALL
+                    UserFields = new UserFields().ALL,
+                    Expansions = TweetResponseFields.Expansions.ALL
                 });
 
                 // know if the stream has started ever
                 // if it has we can change
-                coolDownMinutes = 0;
+                coolDownMinutes = 1;
             }
             catch (TwitterException e)
             {
@@ -88,7 +89,7 @@ public class DrManhattanResponder : BackgroundService
                 {
                     // if the stream has started we probably hit some rate limit
                     // let's wait, otherwise we probably have too many connections
-                    coolDownMinutes = Math.Min(15, coolDownMinutes + 1);
+                    coolDownMinutes = Math.Min(30, coolDownMinutes * 2);
                     await Task.Delay(TimeSpan.FromMinutes(coolDownMinutes), stoppingToken);
                 }
                 else
@@ -120,8 +121,8 @@ public class DrManhattanResponder : BackgroundService
         // 3. If the tweet is referencing other tweets, ignore it.
         if (
             !tweet.ConversationId.Equals(tweet.Id) ||
-            tweet.Attachments.MediaKeys.Any() ||
-            tweet.ReferencedTweets.Any()
+            tweet.Attachments?.MediaKeys?.Any() == true ||
+            tweet.ReferencedTweets?.Any() == true
         )
         {
             _logger.LogInformation("Ignore conversations, as they can get noisy");
