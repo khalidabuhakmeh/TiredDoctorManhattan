@@ -31,7 +31,8 @@ public class DrManhattanResponder : BackgroundService
 
     public override void Dispose()
     {
-        _stream?.StopStream();;
+        _stream?.StopStream();
+        ;
         base.Dispose();
     }
 
@@ -39,31 +40,35 @@ public class DrManhattanResponder : BackgroundService
     {
         // wait for other instances to wind down
         // because Twitter has a connection limit
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-        
+        var coolDownMinutes = 0;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var twitterClient = _twitterClients.OAuth2;
-            
             _stream = twitterClient.StreamsV2.CreateFilteredStream();
-            _stream.StopStream();
-            
+
             try
             {
                 var rules = await twitterClient.StreamsV2.GetRulesForFilteredStreamV2Async();
 
                 // add a rule to the filtered stream
-                if (!rules.Rules.Any()) {
+                if (!rules.Rules.Any())
+                {
                     await twitterClient.StreamsV2.AddRulesToFilteredStreamAsync(
                         new FilteredStreamRuleConfig($"@{_user.ScreenName}", "mention"));
                 }
 
                 _stream.TweetReceived += (_, args) => Received(args);
-                
-                await _stream.StartAsync(new StartFilteredStreamV2Parameters {
+
+                await _stream.StartAsync(new StartFilteredStreamV2Parameters
+                {
                     TweetFields = new TweetFields().ALL,
                     UserFields = new UserFields().ALL
                 });
+
+                // know if the stream has started ever
+                // if it has we can change
+                coolDownMinutes = 0;
             }
             catch (TwitterException e)
             {
@@ -79,10 +84,12 @@ public class DrManhattanResponder : BackgroundService
                 _logger.LogError(e, "Stream stopped due to exception");
 
                 // too many requests
-                if (e.StatusCode == 429 || e.Message.Contains("Rate limit exceeded")) 
+                if (e.Message.Contains("Rate limit exceeded"))
                 {
-                    // wait 15 minutes, cool down
-                    await Task.Delay(TimeSpan.FromMinutes(15), stoppingToken);                    
+                    // if the stream has started we probably hit some rate limit
+                    // let's wait, otherwise we probably have too many connections
+                    coolDownMinutes = Math.Min(15, coolDownMinutes + 1);
+                    await Task.Delay(TimeSpan.FromMinutes(coolDownMinutes), stoppingToken);
                 }
                 else
                 {
@@ -92,7 +99,7 @@ public class DrManhattanResponder : BackgroundService
             }
         }
     }
-    
+
     private async void Received(TweetV2EventArgs args)
     {
         if (args.Tweet is null)
@@ -100,7 +107,7 @@ public class DrManhattanResponder : BackgroundService
             _logger.LogInformation("Not a tweet: {Information}", args.Json);
             return;
         }
-        
+
         _logger.LogInformation("{@Tweet}", args);
 
         var tweet = args.Tweet;
@@ -112,7 +119,7 @@ public class DrManhattanResponder : BackgroundService
         //    or something weird is happening. Ignoring it.
         // 3. If the tweet is referencing other tweets, ignore it.
         if (
-            !tweet.ConversationId.Equals(tweet.Id) || 
+            !tweet.ConversationId.Equals(tweet.Id) ||
             tweet.Attachments.MediaKeys.Any() ||
             tweet.ReferencedTweets.Any()
         )
@@ -120,12 +127,12 @@ public class DrManhattanResponder : BackgroundService
             _logger.LogInformation("Ignore conversations, as they can get noisy");
             return;
         }
-        
+
         var mentions = args.Includes
             .Users
             .Where(u => !u.Username.Equals(_user.ScreenName))
-            .Select(u =>$"@{u.Username}");
-        
+            .Select(u => $"@{u.Username}");
+
         var text = tweet.Text.Replace($"@{_user.ScreenName}", "").Trim();
         // I'm not dealing with this s#@$!
         if (_profanityFilter.ContainsProfanity(text))
@@ -133,12 +140,12 @@ public class DrManhattanResponder : BackgroundService
             _logger.LogInformation("Filtered out {Text} from {@From}", text, mentions);
             return;
         }
-        
+
         try
         {
             var twitterClient = _twitterClients.OAuth1;
             var content = TiredManhattanGenerator.Clean(text);
-            
+
             var image = await TiredManhattanGenerator.GenerateBytes(content);
             var upload = await twitterClient.Upload.UploadTweetImageAsync(image);
 
@@ -147,7 +154,7 @@ public class DrManhattanResponder : BackgroundService
                 InReplyToTweet = new TweetIdentifier(Convert.ToInt64(tweet.Id)),
                 Medias = { upload }
             };
-            
+
             await twitterClient.Tweets.PublishTweetAsync(parameters);
             _logger.LogInformation("Reply sent to {Usernames}", mentions);
         }
