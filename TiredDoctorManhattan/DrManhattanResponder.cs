@@ -5,6 +5,7 @@ using Tweetinvi.Exceptions;
 using Tweetinvi.Models;
 using Tweetinvi.Parameters;
 using Tweetinvi.Parameters.V2;
+using Tweetinvi.Streaming.V2;
 
 namespace TiredDoctorManhattan;
 
@@ -14,6 +15,7 @@ public class DrManhattanResponder : BackgroundService
     private readonly UserInfo _user;
     private readonly ILogger<DrManhattanResponder> _logger;
     private readonly TwitterClients _twitterClients;
+    IFilteredStreamV2? _stream;
 
     public DrManhattanResponder(
         TwitterClients twitterClients,
@@ -27,13 +29,24 @@ public class DrManhattanResponder : BackgroundService
         _logger = logger;
     }
 
+    public override void Dispose()
+    {
+        _stream?.StopStream();;
+        base.Dispose();
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // wait for other instances to wind down
+        // because Twitter has a connection limit
+        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        
         while (!stoppingToken.IsCancellationRequested)
         {
             var twitterClient = _twitterClients.OAuth2;
-            var stream = twitterClient.StreamsV2.CreateFilteredStream();
-            stream.StopStream();
+            
+            _stream = twitterClient.StreamsV2.CreateFilteredStream();
+            _stream.StopStream();
             
             try
             {
@@ -45,9 +58,9 @@ public class DrManhattanResponder : BackgroundService
                         new FilteredStreamRuleConfig($"@{_user.ScreenName}", "mention"));
                 }
 
-                stream.TweetReceived += (_, args) => Received(args);
+                _stream.TweetReceived += (_, args) => Received(args);
                 
-                await stream.StartAsync(new StartFilteredStreamV2Parameters {
+                await _stream.StartAsync(new StartFilteredStreamV2Parameters {
                     TweetFields = new TweetFields().ALL,
                     UserFields = new UserFields().ALL
                 });
@@ -56,8 +69,7 @@ public class DrManhattanResponder : BackgroundService
             {
                 try
                 {
-                    stream.StopStream();
-                    
+                    _stream.StopStream();
                 }
                 catch
                 {
