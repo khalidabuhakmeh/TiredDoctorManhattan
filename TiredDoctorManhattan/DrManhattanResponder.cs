@@ -41,14 +41,14 @@ public class DrManhattanResponder : BackgroundService
         // wait for other instances to wind down
         // because Twitter has a connection limit
         var coolDownMinutes = 1;
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            var twitterClient = _twitterClients.OAuth2;
-            _stream = twitterClient.StreamsV2.CreateFilteredStream();
-
             try
             {
+                var twitterClient = _twitterClients.OAuth2;
+                // turns out this actually makes a call
+                // who knew... chill the F' out on failure
+                _stream = twitterClient.StreamsV2.CreateFilteredStream();
                 var rules = await twitterClient.StreamsV2.GetRulesForFilteredStreamV2Async();
 
                 // add a rule to the filtered stream
@@ -75,7 +75,7 @@ public class DrManhattanResponder : BackgroundService
             {
                 try
                 {
-                    _stream.StopStream();
+                    _stream?.StopStream();
                 }
                 catch
                 {
