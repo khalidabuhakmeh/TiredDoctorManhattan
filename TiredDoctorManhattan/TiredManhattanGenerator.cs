@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing;
@@ -12,10 +13,11 @@ public static class TiredManhattanGenerator
     public static async Task<Image> Generate(string text)
     {
         if (text == null) throw new ArgumentNullException(nameof(text));
-        
+
         var background = await Settings.GetBackground();
-        
-        var textOptions = new TextOptions(Settings.Font) {
+
+        var textOptions = new TextOptions(Settings.Font)
+        {
             VerticalAlignment = VerticalAlignment.Center,
             TextAlignment = TextAlignment.Center,
             Origin = Settings.TextBoxOrigin
@@ -28,7 +30,7 @@ public static class TiredManhattanGenerator
 
         var container = new RectangularPolygon(
             x: Settings.TextBoxOrigin.X - Settings.TextPadding,
-            y: Settings.TextBoxOrigin.Y - height/2,
+            y: Settings.TextBoxOrigin.Y - height / 2,
             width: width,
             height: height
         );
@@ -45,7 +47,8 @@ public static class TiredManhattanGenerator
             height: blackBorder.Height + Settings.WhiteBorderThickness * 2
         );
 
-        background.Mutate(i => {
+        background.Mutate(i =>
+        {
             i.Fill(Color.White, whiteBorder);
             i.Fill(Color.Black, blackBorder);
             i.Fill(Settings.ManhattanBlue, container);
@@ -82,8 +85,29 @@ public static class TiredManhattanGenerator
     public static string Clean(string? text)
     {
         var content = string.IsNullOrWhiteSpace(text) ? "the emptiness" : text.Trim();
+
+        // remove newlines and tabs
+        content = Regex.Replace(content, @"\t|\n|\r", "");
+
+        // exclude long tweets
         content = content.Length > 30 ? "long tweets" : content;
-        content = $"I AM TIRED OF {content}.".ToUpperInvariant();
+
+        // No Unicode - damn emojis!
+        content = content.ContainsUnicode() ? "Unicode & Emojis" : content;
+
+        // make the line work
+
+        content = content.Equals("beans", StringComparison.OrdinalIgnoreCase)
+            ? "JEREMY SINCLAIR LOVES BEANS."
+            : $"I AM TIRED OF {content}.".ToUpperInvariant();
+
         return content;
+    }
+
+    public static bool ContainsUnicode(this string value)
+    {
+        var asciiBytesCount = System.Text.Encoding.ASCII.GetByteCount(value);
+        var unicodeBytesCount = System.Text.Encoding.UTF8.GetByteCount(value);
+        return asciiBytesCount != unicodeBytesCount;
     }
 }

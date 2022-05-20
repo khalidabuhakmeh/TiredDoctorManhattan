@@ -33,6 +33,7 @@ public class DrManhattanResponder : BackgroundService
         {
             var twitterClient = _twitterClients.OAuth2;
             var stream = twitterClient.StreamsV2.CreateFilteredStream();
+            stream.StopStream();
             
             try
             {
@@ -92,9 +93,17 @@ public class DrManhattanResponder : BackgroundService
 
         var tweet = args.Tweet;
 
-        // conversation id and tweet id should be the same,
+        // 1. conversation id and tweet id should be the same,
         // if they are, then it's the first tweet to the bot 
-        if (!tweet.ConversationId.Equals(tweet.Id))
+        //
+        // 2. If the tweet has media, it might be a previous tweet
+        //    or something weird is happening. Ignoring it.
+        // 3. If the tweet is referencing other tweets, ignore it.
+        if (
+            !tweet.ConversationId.Equals(tweet.Id) || 
+            tweet.Attachments.MediaKeys.Any() ||
+            tweet.ReferencedTweets.Any()
+        )
         {
             _logger.LogInformation("Ignore conversations, as they can get noisy");
             return;
