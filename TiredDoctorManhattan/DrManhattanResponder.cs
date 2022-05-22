@@ -71,7 +71,8 @@ public class DrManhattanResponder : BackgroundService
                 // if it has we can change
                 coolDownMinutes = 1;
             }
-            catch (TwitterException e)
+            // catch all exceptions
+            catch (Exception e)
             {
                 try
                 {
